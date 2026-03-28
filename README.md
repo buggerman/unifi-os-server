@@ -1,7 +1,7 @@
 # UniFi OS Server
 
-<a href="https://github.com/lemker/unifi-os-server/pkgs/container/unifi-os-server"><img src="https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fgithub.com%2Flemker%2Funifi-os-server%2Fpkgs%2Fcontainer%2Funifi-os-server&search=(%3Fs)%3Cspan%5B%5E%3E%5D*%3E%5Cs*Total%5Cs%2Bdownloads%5Cs*%3C%2Fspan%3E.*%3F%3Ch3%5B%5E%3E%5D*%3E%5Cs*(%5B0-9%5D%5B0-9.%2C%5D*%5Cs*%5BKM%5D%3F)%5Cs*%3C%2Fh3%3E&replace=%241&logo=github&label=GHCR%20Pulls&cacheSeconds=3600"></a>
-<a href="https://github.com/lemker/unifi-os-server/actions/workflows/build-image.yaml"><img src="https://img.shields.io/github/actions/workflow/status/lemker/unifi-os-server/build-image.yaml?logo=githubactions&logoColor=white&label=Actions"></a>
+<a href="https://github.com/buggerman/unifi-os-server/pkgs/container/unifi-os-server"><img src="https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fgithub.com%2Fbuggerman%2Funifi-os-server%2Fpkgs%2Fcontainer%2Funifi-os-server&search=(%3Fs)%3Cspan%5B%5E%3E%5D*%3E%5Cs*Total%5Cs%2Bdownloads%5Cs*%3C%2Fspan%3E.*%3F%3Ch3%5B%5E%3E%5D*%3E%5Cs*(%5B0-9%5D%5B0-9.%2C%5D*%5Cs*%5BKM%5D%3F)%5Cs*%3C%2Fh3%3E&replace=%241&logo=github&label=GHCR%20Pulls&cacheSeconds=3600"></a>
+<a href="https://github.com/buggerman/unifi-os-server/actions/workflows/build-image.yaml"><img src="https://img.shields.io/github/actions/workflow/status/buggerman/unifi-os-server/build-image.yaml?logo=githubactions&logoColor=white&label=Actions"></a>
 
 Run [UniFi OS Server](https://blog.ui.com/article/introducing-unifi-os-server) directly on Docker or Kubernetes.
 
@@ -13,11 +13,95 @@ Run [UniFi OS Server](https://blog.ui.com/article/introducing-unifi-os-server) d
 
 ## Docker Compose
 
-See [docker-compose.yaml](https://github.com/lemker/unifi-os-server/blob/main/docker-compose.yaml)
+See [docker-compose.yaml](https://github.com/buggerman/unifi-os-server/blob/main/docker-compose.yaml)
+
+## TrueNAS SCALE
+
+TrueNAS SCALE runs Docker natively. Two networking approaches are available depending on your preference.
+
+### Option 1: Bridge with Port Mapping
+
+The container shares the TrueNAS host IP and exposes each required port explicitly. Use the standard [docker-compose.yaml](https://github.com/buggerman/unifi-os-server/blob/main/docker-compose.yaml) as a starting point.
+
+### Option 2: macvlan (recommended)
+
+Assigns the container its own dedicated IP address on your network. No port mapping is required — the container is directly reachable at its IP on all ports, and behaves like a separate physical device.
+
+Replace `enp131s0` with your TrueNAS host's physical network interface and adjust the subnet, gateway, and IP address to match your network.
+
+```yaml
+networks:
+  unifi_network:
+    driver: macvlan
+    driver_opts:
+      parent: enp131s0
+    ipam:
+      config:
+        - subnet: 192.168.0.0/16
+          gateway: 192.168.0.1
+
+services:
+  unifi-os-server:
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    cgroup: host
+    container_name: unifi-os-server
+    environment:
+      - UOS_SYSTEM_IP=192.168.1.10
+      - TZ=Europe/London
+    image: ghcr.io/buggerman/unifi-os-server:latest
+    networks:
+      unifi_network:
+        ipv4_address: 192.168.1.10
+    restart: unless-stopped
+    tmpfs:
+      - /run:exec
+      - /run/lock
+      - /tmp:exec
+      - /var/lib/journal
+      - /var/opt/unifi/tmp:size=64m
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /path/to/persistent:/persistent
+      - /path/to/var-log:/var/log
+      - /path/to/data:/data
+      - /path/to/srv:/srv
+      - /path/to/var-lib-unifi:/var/lib/unifi
+      - /path/to/var-lib-mongodb:/var/lib/mongodb
+      - /path/to/etc-rabbitmq-ssl:/etc/rabbitmq/ssl
+```
+
+> **Note:** With macvlan, the TrueNAS host cannot communicate with the container directly over the macvlan interface. This is a kernel-level limitation. If you need host-to-container access, add a macvlan shim on the host:
+>
+> ```bash
+> ip link add macvlan0 link enp131s0 type macvlan mode bridge
+> ip addr add 192.168.1.11/32 dev macvlan0
+> ip link set macvlan0 up
+> ip route add 192.168.1.10/32 dev macvlan0
+> ```
+>
+> Use any unused IP address for the shim (`192.168.1.11` above). This does not persist across reboots — add it to a startup script if needed.
+
+### ZFS Dataset
+
+If you store container data on a ZFS dataset, verify it is not read-only before starting the container:
+
+```bash
+zfs get readonly <pool>/<dataset>
+```
+
+If the `VALUE` is `on`, disable it:
+
+```bash
+zfs set readonly=off <pool>/<dataset>
+```
+
+A `SOURCE` of `temporary` means the property was set in the current boot session and will clear on reboot, but the container will fail to start until it is explicitly cleared. This can happen after certain ZFS operations such as snapshot rollbacks.
 
 ## Kubernetes
 
-See [kubernetes](https://github.com/lemker/unifi-os-server/tree/main/kubernetes)
+See [kubernetes](https://github.com/buggerman/unifi-os-server/tree/main/kubernetes)
 
 Deployment example uses [ingress-nginx](https://github.com/kubernetes/ingress-nginx) for the ingress and [longhorn](https://github.com/longhorn/longhorn) for storage.
 
