@@ -27,6 +27,8 @@ jobs:
   extract-image:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      packages: write
     outputs:
       PODMAN_IMAGE_TAG: ${{ steps.tag.outputs.PODMAN_IMAGE_TAG }}
   
